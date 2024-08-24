@@ -24,10 +24,14 @@ mod lib;
 use std::time::SystemTime;
 
 use bevy_ecs::query::QueryData;
+use lib::color::format;
 use lib::color::ArmorColors;
 use lib::duels::*;
 use lib::player::*;
 use lib::projectiles::*;
+use lib::scoreboard::gen_scores;
+use lib::scoreboard::ScoreboardMode;
+use lib::scoreboard::ScoreboardPlugin;
 use lib::world::*;
 use valence::entity::living::Absorption;
 use valence::entity::living::Health;
@@ -49,6 +53,8 @@ use valence::protocol::sound::SoundCategory;
 use valence::protocol::Sound;
 use valence::protocol::VarInt;
 use valence::protocol::WritePacket;
+use valence::scoreboard::Objective;
+use valence::scoreboard::ObjectiveScores;
 
 #[derive(Event)]
 struct DeathEvent(Entity, bool);
@@ -88,6 +94,11 @@ fn main() {
         })
         .add_plugins(DefaultPlugins)
         .add_plugins((
+            ScoreboardPlugin {
+                name: "BRIDGE",
+                text: gen_text(0, 0, 0),
+                mode: ScoreboardMode::ServerWide,
+            },
             InvBroadcastPlugin,
             DisableDropPlugin,
             ProjectilePlugin,
@@ -129,6 +140,7 @@ fn main() {
                 play_death_sound.before(handle_death),
                 handle_score.after(check_goals).before(handle_death),
                 handle_oob_clients,
+                update_scoreboard,
                 game_broadcast,
             ),
         )
@@ -743,6 +755,27 @@ fn handle_score(
     }
 }
 
+fn update_scoreboard(
+    mut games: Query<&mut GameData>,
+    mut objectives: Query<&mut ObjectiveScores, With<Objective>>,
+) {
+    for data in games.iter_mut() {
+        if !data.is_changed() {
+            continue;
+        }
+        if let Some(DataValue::Int(red)) = data.0.get(&0) {
+            if let Some(DataValue::Int(blue)) = data.0.get(&1) {
+                println!("Updating scoreboard");
+                println!("Red: {}", red);
+                println!("Blue: {}", blue);
+                for mut scores in objectives.iter_mut() {
+                    *scores = gen_scores(&gen_text(*red, *blue, 0));
+                }
+            }
+        }
+    }
+}
+
 fn game_broadcast(
     mut clients: Query<&mut Client>,
     games: Query<&Entities>,
@@ -760,6 +793,15 @@ fn game_broadcast(
 }
 
 // Helper functions below
+
+fn gen_text(red: i32, blue: i32, kills: u16) -> Vec<String> {
+    vec![
+        format::RED.to_string()+"[R] "+"\u{2B24}".repeat(red as usize).as_str()+format::GRAY+"\u{2B24}".repeat(5 - red as usize).as_str(),
+        format::BLUE.to_string()+"[B] "+"\u{2B24}".repeat(blue as usize).as_str()+format::GRAY+"\u{2B24}".repeat(5 - blue as usize).as_str(),
+        "".to_string(),
+        format::WHITE.to_string()+"Kills: "+itoa::Buffer::new().format(kills),
+    ]
+}
 
 fn damage_player(
     attacker: &mut CombatQueryItem,
